@@ -929,15 +929,40 @@ class Share extends \OC\Share\Constants {
 	 * @param string $itemType
 	 * @param string $itemSource
 	 * @param string $date expiration date
+	 * @param int $shareTime timestamp from when the file was shared
+	 * @throws \Exception
 	 * @return boolean
 	 */
-	public static function setExpirationDate($itemType, $itemSource, $date) {
+	public static function setExpirationDate($itemType, $itemSource, $date, $shareTime) {
+		$l = \OC_L10N::get('lib');
 		$user = \OC_User::getUser();
 
 		if ($date == '') {
 			$date = null;
 		} else {
 			$date = new \DateTime($date);
+			$today = new \DateTime('now');
+
+			if (\OCP\Util::isDefaultExpireDateEnforced()) {
+				// initialize max date with share time
+				$maxDate = new \DateTime();
+				$maxDate->setTimestamp($shareTime);
+				$maxDays = \OCP\Config::getAppValue('core', 'shareapi_expire_after_n_days', '7');
+				$maxDate->add(new \DateInterval('P' . $maxDays . 'D'));
+				if ($date > $maxDate) {
+					$message = 'Can not set expire date. Shares can not expire later then ' . $maxDays . ' after they where shared';
+					$message_t = $l->t('Can not set expire date. Shares can not expire later then %s after they where shared', array($maxDays));
+					\OCP\Util::writeLog('OCP\Share', $message, \OCP\Util::WARN);
+					throw new \Exception($message_t);
+				}
+			}
+
+			if ($date < $today) {
+				$message = 'Can not set expire date. Expire date is in the past';
+				$message_t = $l->t('Can not set expire date. Expire date is in the past');
+				\OCP\Util::writeLog('OCP\Share', $message, \OCP\Util::WARN);
+				throw new \Exception($message_t);
+			}
 		}
 		$query = \OC_DB::prepare('UPDATE `*PREFIX*share` SET `expiration` = ? WHERE `item_type` = ? AND `item_source` = ?  AND `uid_owner` = ? AND `share_type` = ?');
 		$query->bindValue(1, $date, 'datetime');
@@ -954,11 +979,11 @@ class Share extends \OC\Share\Constants {
 			'date' => $date,
 			'uidOwner' => $user
 		));
-	
+
 		return true;
 
         }
-        
+
 	/**
 	 * Checks whether a share has expired, calls unshareItem() if yes.
 	 * @param array $item Share data (usually database row)
